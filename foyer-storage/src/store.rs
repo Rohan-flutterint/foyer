@@ -42,7 +42,17 @@ use foyer_common::{
     runtime::BackgroundShutdownRuntime,
 };
 use foyer_memory::{Cache, CacheEntry};
-use std::{borrow::Borrow, fmt::Debug, hash::Hash, marker::PhantomData, sync::Arc, time::Instant};
+use std::{
+    borrow::Borrow,
+    fmt::Debug,
+    hash::Hash,
+    marker::PhantomData,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Instant,
+};
 use tokio::runtime::Handle;
 
 /// The disk cache engine that serves as the storage backend of `foyer`.
@@ -511,11 +521,25 @@ where
         let compression = self.compression;
 
         let runtime = {
+            let cores = core_affinity::get_core_ids().unwrap();
+            let id = AtomicUsize::new(0);
+
             let mut builder = tokio::runtime::Builder::new_multi_thread();
             if self.runtime_config.worker_threads != 0 {
                 builder.worker_threads(self.runtime_config.worker_threads);
             }
             builder.thread_name(&self.name);
+            builder.on_thread_start(move || {
+                let tid = std::thread::current().id();
+                let cidx = (&id).fetch_add(1, Ordering::SeqCst);
+                let cid = cores[cidx % cores.len()];
+                let affinity = core_affinity::set_for_current(cid);
+                println!("thread id: {:?}, core id: {:?}, affinity: {:?}", tid, cid, affinity);
+            });
+            builder.on_thread_stop(|| {
+                let tid = std::thread::current().id();
+                println!("thread id: {:?} stopped.", tid);
+            });
             let runtime = builder.enable_all().build().map_err(anyhow::Error::from)?;
             let runtime = BackgroundShutdownRuntime::from(runtime);
             Arc::new(runtime)
