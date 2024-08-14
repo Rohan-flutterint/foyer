@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use ahash::RandomState;
 use foyer::{Cache, CacheBuilder, EventListener, FifoConfig};
 
 struct EchoEventListener;
@@ -21,6 +22,7 @@ struct EchoEventListener;
 impl EventListener for EchoEventListener {
     type Key = u64;
     type Value = String;
+    type HashBuilder = RandomState;
 
     fn on_memory_release(&self, key: Self::Key, value: Self::Value)
     where
@@ -50,4 +52,6 @@ fn main() {
     cache.deposit(2, "First".to_string());
     cache.insert(3, "Third".to_string());
     cache.insert(3, "Forth".to_string());
+
+    drop(cache);
 }

@@ -12,7 +12,9 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
-use crate::code::{Key, Value};
+use foyer_common::code::{HashBuilder, Key, Value};
+
+use crate::CacheEntryNoReferenceHandle;
 
 /// Trait for the customized event listener.
 
@@ -21,6 +23,21 @@ pub trait EventListener: Send + Sync + 'static {
     type Key;
     /// Associated value type.
     type Value;
+    /// Associated hash builder type.
+    type HashBuilder;
+
+    // TODO(MrCroxx): use `expect` after `lint_reasons` is stable.
+    #[allow(unused_variables)]
+    /// Called when a cache entry is released from the in-memory cache.
+    unsafe fn on_no_reference(
+        &self,
+        handle: &CacheEntryNoReferenceHandle<'_, Self::Key, Self::Value, Self::HashBuilder>,
+    ) where
+        Self::Key: Key,
+        Self::Value: Value,
+        Self::HashBuilder: HashBuilder,
+    {
+    }
 
     // TODO(MrCroxx): use `expect` after `lint_reasons` is stable.
     #[allow(unused_variables)]

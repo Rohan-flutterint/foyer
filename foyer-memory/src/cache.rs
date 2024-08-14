@@ -12,7 +12,7 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
-use std::{borrow::Borrow, fmt::Debug, hash::Hash, ops::Deref, sync::Arc};
+use std::{any::TypeId, borrow::Borrow, fmt::Debug, hash::Hash, ops::Deref, sync::Arc};
 
 use ahash::RandomState;
 use futures::Future;
@@ -22,21 +22,26 @@ use tokio::sync::oneshot;
 
 use foyer_common::{
     code::{HashBuilder, Key, Value},
-    event::EventListener,
     future::Diversion,
 };
 
 use crate::{
     context::CacheContext,
+    event::EventListener,
     eviction::{
         fifo::{Fifo, FifoHandle},
         lfu::{Lfu, LfuHandle},
         lru::{Lru, LruHandle},
         s3fifo::{S3Fifo, S3FifoHandle},
         sanity::SanityEviction,
+        Eviction,
     },
-    generic::{FetchMark, FetchState, GenericCache, GenericCacheConfig, GenericCacheEntry, GenericFetch, Weighter},
-    indexer::{hash_table::HashTableIndexer, sanity::SanityIndexer},
+    generic::{
+        FetchMark, FetchState, GenericCache, GenericCacheConfig, GenericCacheEntry, GenericCacheEntryNoReferenceHandle,
+        GenericFetch, Weighter,
+    },
+    handle::KeyedHandle,
+    indexer::{hash_table::HashTableIndexer, sanity::SanityIndexer, Indexer},
     FifoConfig, LfuConfig, LruConfig, S3FifoConfig,
 };
 
@@ -46,6 +51,14 @@ pub type FifoCacheEntry<K, V, S = RandomState> =
     GenericCacheEntry<K, V, SanityEviction<Fifo<(K, V)>>, SanityIndexer<HashTableIndexer<K, FifoHandle<(K, V)>>>, S>;
 pub type FifoFetch<K, V, ER, S = RandomState> =
     GenericFetch<K, V, SanityEviction<Fifo<(K, V)>>, SanityIndexer<HashTableIndexer<K, FifoHandle<(K, V)>>>, S, ER>;
+pub type FifoCacheEntryNoReferenceHandle<'a, K, V, S = RandomState> = GenericCacheEntryNoReferenceHandle<
+    'a,
+    K,
+    V,
+    SanityEviction<Fifo<(K, V)>>,
+    SanityIndexer<HashTableIndexer<K, FifoHandle<(K, V)>>>,
+    S,
+>;
 
 pub type LruCache<K, V, S = RandomState> =
     GenericCache<K, V, SanityEviction<Lru<(K, V)>>, SanityIndexer<HashTableIndexer<K, LruHandle<(K, V)>>>, S>;
@@ -53,6 +66,14 @@ pub type LruCacheEntry<K, V, S = RandomState> =
     GenericCacheEntry<K, V, SanityEviction<Lru<(K, V)>>, SanityIndexer<HashTableIndexer<K, LruHandle<(K, V)>>>, S>;
 pub type LruFetch<K, V, ER, S = RandomState> =
     GenericFetch<K, V, SanityEviction<Lru<(K, V)>>, SanityIndexer<HashTableIndexer<K, LruHandle<(K, V)>>>, S, ER>;
+pub type LruCacheEntryNoReferenceHandle<'a, K, V, S = RandomState> = GenericCacheEntryNoReferenceHandle<
+    'a,
+    K,
+    V,
+    SanityEviction<Lru<(K, V)>>,
+    SanityIndexer<HashTableIndexer<K, LruHandle<(K, V)>>>,
+    S,
+>;
 
 pub type LfuCache<K, V, S = RandomState> =
     GenericCache<K, V, SanityEviction<Lfu<(K, V)>>, SanityIndexer<HashTableIndexer<K, LfuHandle<(K, V)>>>, S>;
@@ -60,6 +81,14 @@ pub type LfuCacheEntry<K, V, S = RandomState> =
     GenericCacheEntry<K, V, SanityEviction<Lfu<(K, V)>>, SanityIndexer<HashTableIndexer<K, LfuHandle<(K, V)>>>, S>;
 pub type LfuFetch<K, V, ER, S = RandomState> =
     GenericFetch<K, V, SanityEviction<Lfu<(K, V)>>, SanityIndexer<HashTableIndexer<K, LfuHandle<(K, V)>>>, S, ER>;
+pub type LfuCacheEntryNoReferenceHandle<'a, K, V, S = RandomState> = GenericCacheEntryNoReferenceHandle<
+    'a,
+    K,
+    V,
+    SanityEviction<Lfu<(K, V)>>,
+    SanityIndexer<HashTableIndexer<K, LfuHandle<(K, V)>>>,
+    S,
+>;
 
 pub type S3FifoCache<K, V, S = RandomState> =
     GenericCache<K, V, SanityEviction<S3Fifo<(K, V)>>, SanityIndexer<HashTableIndexer<K, S3FifoHandle<(K, V)>>>, S>;
@@ -72,6 +101,14 @@ pub type S3FifoCacheEntry<K, V, S = RandomState> = GenericCacheEntry<
 >;
 pub type S3FifoFetch<K, V, ER, S = RandomState> =
     GenericFetch<K, V, SanityEviction<S3Fifo<(K, V)>>, SanityIndexer<HashTableIndexer<K, S3FifoHandle<(K, V)>>>, S, ER>;
+pub type S3FifoCacheEntryNoReferenceHandle<'a, K, V, S = RandomState> = GenericCacheEntryNoReferenceHandle<
+    'a,
+    K,
+    V,
+    SanityEviction<S3Fifo<(K, V)>>,
+    SanityIndexer<HashTableIndexer<K, S3FifoHandle<(K, V)>>>,
+    S,
+>;
 
 /// A cached entry holder of the in-memory cache.
 #[derive(Debug)]
@@ -169,6 +206,93 @@ where
     }
 }
 
+/// A temporary handle for no reference cache entry.
+pub enum CacheEntryNoReferenceHandle<'a, K, V, S = RandomState>
+where
+    K: Key,
+    V: Value,
+    S: HashBuilder,
+{
+    /// A temporary handle for no reference FIFO cache entry.
+    Fifo(FifoCacheEntryNoReferenceHandle<'a, K, V, S>),
+    /// A temporary handle for no reference LRU cache entry.
+    Lru(LruCacheEntryNoReferenceHandle<'a, K, V, S>),
+    /// A temporary handle for no reference LFU cache entry.
+    Lfu(LfuCacheEntryNoReferenceHandle<'a, K, V, S>),
+    /// A temporary handle for no reference S3FIFO cache entry.
+    S3Fifo(S3FifoCacheEntryNoReferenceHandle<'a, K, V, S>),
+}
+
+impl<'a, K, V, S> CacheEntryNoReferenceHandle<'a, K, V, S>
+where
+    K: Key,
+    V: Value,
+    S: HashBuilder,
+{
+    /// Convert to cache entry.
+    pub fn to_entry(&self) -> CacheEntry<K, V, S> {
+        match self {
+            CacheEntryNoReferenceHandle::Fifo(handle) => CacheEntry::Fifo(handle.to_entry()),
+            CacheEntryNoReferenceHandle::Lru(handle) => CacheEntry::Lru(handle.to_entry()),
+            CacheEntryNoReferenceHandle::Lfu(handle) => CacheEntry::Lfu(handle.to_entry()),
+            CacheEntryNoReferenceHandle::S3Fifo(handle) => CacheEntry::S3Fifo(handle.to_entry()),
+        }
+    }
+}
+
+impl<'a, K, V, E, I, S> From<GenericCacheEntryNoReferenceHandle<'a, K, V, E, I, S>>
+    for CacheEntryNoReferenceHandle<'a, K, V, S>
+where
+    K: Key,
+    V: Value,
+    E: Eviction,
+    E::Handle: KeyedHandle<Key = K, Data = (K, V)>,
+    I: Indexer<Key = K, Handle = E::Handle>,
+    S: HashBuilder,
+{
+    fn from(handle: GenericCacheEntryNoReferenceHandle<'a, K, V, E, I, S>) -> Self {
+        // TODO(MrCroxx): convert to const after `cosnt TypeId::of()` is stable.
+        let fifo = TypeId::of::<FifoCache<K, V, S>>();
+        let lru = TypeId::of::<LruCache<K, V, S>>();
+        let lfu = TypeId::of::<LfuCache<K, V, S>>();
+        let s3fifo = TypeId::of::<S3FifoCache<K, V, S>>();
+        let tid = handle.tid();
+
+        if tid == s3fifo {
+            return Self::S3Fifo(unsafe {
+                std::mem::transmute::<
+                    GenericCacheEntryNoReferenceHandle<'a, K, V, E, I, S>,
+                    S3FifoCacheEntryNoReferenceHandle<'a, K, V, S>,
+                >(handle)
+            });
+        }
+        if tid == lfu {
+            return Self::Lfu(unsafe {
+                std::mem::transmute::<
+                    GenericCacheEntryNoReferenceHandle<'a, K, V, E, I, S>,
+                    LfuCacheEntryNoReferenceHandle<'a, K, V, S>,
+                >(handle)
+            });
+        }
+        if tid == lru {
+            return Self::Lru(unsafe {
+                std::mem::transmute::<
+                    GenericCacheEntryNoReferenceHandle<'a, K, V, E, I, S>,
+                    LruCacheEntryNoReferenceHandle<'a, K, V, S>,
+                >(handle)
+            });
+        }
+        if tid == fifo {
+            return Self::Fifo(unsafe {
+                std::mem::transmute::<
+                    GenericCacheEntryNoReferenceHandle<'a, K, V, E, I, S>,
+                    FifoCacheEntryNoReferenceHandle<'a, K, V, S>,
+                >(handle)
+            });
+        }
+        unreachable!()
+    }
+}
 impl<K, V, S> CacheEntry<K, V, S>
 where
     K: Key,
@@ -300,7 +424,7 @@ where
     hash_builder: S,
     weighter: Arc<dyn Weighter<K, V>>,
 
-    event_listener: Option<Arc<dyn EventListener<Key = K, Value = V>>>,
+    event_listener: Option<Arc<dyn EventListener<Key = K, Value = V, HashBuilder = S>>>,
 }
 
 impl<K, V> CacheBuilder<K, V, RandomState>
@@ -376,6 +500,10 @@ where
     where
         OS: HashBuilder,
     {
+        assert!(
+            self.event_listener.is_none(),
+            "hash builder must be set before event listener"
+        );
         CacheBuilder {
             name: self.name,
             capacity: self.capacity,
@@ -384,7 +512,7 @@ where
             object_pool_capacity: self.object_pool_capacity,
             hash_builder,
             weighter: self.weighter,
-            event_listener: self.event_listener,
+            event_listener: None,
         }
     }
 
@@ -395,7 +523,10 @@ where
     }
 
     /// Set event listener.
-    pub fn with_event_listener(mut self, event_listener: Arc<dyn EventListener<Key = K, Value = V>>) -> Self {
+    pub fn with_event_listener(
+        mut self,
+        event_listener: Arc<dyn EventListener<Key = K, Value = V, HashBuilder = S>>,
+    ) -> Self {
         self.event_listener = Some(event_listener);
         self
     }
@@ -403,7 +534,7 @@ where
     /// Build in-memory cache with the given configuration.
     pub fn build(self) -> Cache<K, V, S> {
         match self.eviction_config {
-            EvictionConfig::Fifo(eviction_config) => Cache::Fifo(Arc::new(GenericCache::new(GenericCacheConfig {
+            EvictionConfig::Fifo(eviction_config) => Cache::Fifo(GenericCache::new(GenericCacheConfig {
                 name: self.name,
                 capacity: self.capacity,
                 shards: self.shards,
@@ -412,8 +543,8 @@ where
                 hash_builder: self.hash_builder,
                 weighter: self.weighter,
                 event_listener: self.event_listener,
-            }))),
-            EvictionConfig::Lru(eviction_config) => Cache::Lru(Arc::new(GenericCache::new(GenericCacheConfig {
+            })),
+            EvictionConfig::Lru(eviction_config) => Cache::Lru(GenericCache::new(GenericCacheConfig {
                 name: self.name,
                 capacity: self.capacity,
                 shards: self.shards,
@@ -422,8 +553,8 @@ where
                 hash_builder: self.hash_builder,
                 weighter: self.weighter,
                 event_listener: self.event_listener,
-            }))),
-            EvictionConfig::Lfu(eviction_config) => Cache::Lfu(Arc::new(GenericCache::new(GenericCacheConfig {
+            })),
+            EvictionConfig::Lfu(eviction_config) => Cache::Lfu(GenericCache::new(GenericCacheConfig {
                 name: self.name,
                 capacity: self.capacity,
                 shards: self.shards,
@@ -432,8 +563,8 @@ where
                 hash_builder: self.hash_builder,
                 weighter: self.weighter,
                 event_listener: self.event_listener,
-            }))),
-            EvictionConfig::S3Fifo(eviction_config) => Cache::S3Fifo(Arc::new(GenericCache::new(GenericCacheConfig {
+            })),
+            EvictionConfig::S3Fifo(eviction_config) => Cache::S3Fifo(GenericCache::new(GenericCacheConfig {
                 name: self.name,
                 capacity: self.capacity,
                 shards: self.shards,
@@ -442,7 +573,7 @@ where
                 hash_builder: self.hash_builder,
                 weighter: self.weighter,
                 event_listener: self.event_listener,
-            }))),
+            })),
         }
     }
 }

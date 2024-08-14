@@ -17,7 +17,6 @@ use std::{fmt::Debug, sync::Arc};
 use ahash::RandomState;
 use foyer_common::{
     code::{HashBuilder, StorageKey, StorageValue},
-    event::EventListener,
     tracing::TracingConfig,
 };
 use foyer_memory::{Cache, CacheBuilder, EvictionConfig, Weighter};
@@ -29,24 +28,22 @@ use foyer_storage::{
 use crate::HybridCache;
 
 /// Hybrid cache builder.
-pub struct HybridCacheBuilder<K, V> {
+pub struct HybridCacheBuilder {
     name: String,
-    event_listener: Option<Arc<dyn EventListener<Key = K, Value = V>>>,
     tracing_config: TracingConfig,
 }
 
-impl<K, V> Default for HybridCacheBuilder<K, V> {
+impl Default for HybridCacheBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<K, V> HybridCacheBuilder<K, V> {
+impl HybridCacheBuilder {
     /// Create a new hybrid cache builder.
     pub fn new() -> Self {
         Self {
             name: "foyer".to_string(),
-            event_listener: None,
             tracing_config: TracingConfig::default(),
         }
     }
@@ -61,14 +58,6 @@ impl<K, V> HybridCacheBuilder<K, V> {
         self
     }
 
-    /// Set event listener.
-    ///
-    /// Default: No event listener installed.
-    pub fn with_event_listener(mut self, event_listener: Arc<dyn EventListener<Key = K, Value = V>>) -> Self {
-        self.event_listener = Some(event_listener);
-        self
-    }
-
     /// Set tracing config.
     ///
     /// Default: Only operations over 1s will be recorded.
@@ -78,15 +67,12 @@ impl<K, V> HybridCacheBuilder<K, V> {
     }
 
     /// Continue to modify the in-memory cache configurations.
-    pub fn memory(self, capacity: usize) -> HybridCacheBuilderPhaseMemory<K, V, RandomState>
+    pub fn memory<K, V>(self, capacity: usize) -> HybridCacheBuilderPhaseMemory<K, V, RandomState>
     where
         K: StorageKey,
         V: StorageValue,
     {
-        let mut builder = CacheBuilder::new(capacity).with_name(&self.name);
-        if let Some(event_listener) = self.event_listener {
-            builder = builder.with_event_listener(event_listener);
-        }
+        let builder = CacheBuilder::new(capacity).with_name(&self.name);
         HybridCacheBuilderPhaseMemory {
             builder,
             name: self.name,

@@ -13,6 +13,7 @@
 //  limitations under the License.
 
 use std::{
+    any::{Any, TypeId},
     borrow::Borrow,
     fmt::Debug,
     future::Future,
@@ -22,7 +23,7 @@ use std::{
     ptr::NonNull,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Weak,
     },
     task::{Context, Poll},
 };
@@ -30,7 +31,6 @@ use std::{
 use ahash::RandomState;
 use foyer_common::{
     code::{HashBuilder, Key, Value},
-    event::EventListener,
     future::{Diversion, DiversionFuture},
     metrics::Metrics,
     object_pool::ObjectPool,
@@ -43,6 +43,7 @@ use pin_project::pin_project;
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{
+    event::EventListener,
     eviction::Eviction,
     handle::{Handle, HandleExt, KeyedHandle},
     indexer::Indexer,
@@ -58,11 +59,11 @@ use fastrace::{future::InSpan, prelude::*};
 pub trait Weighter<K, V>: Fn(&K, &V) -> usize + Send + Sync + 'static {}
 impl<K, V, T> Weighter<K, V> for T where T: Fn(&K, &V) -> usize + Send + Sync + 'static {}
 
-struct SharedState<K, V, T> {
+struct SharedState<K, V, S, T> {
     metrics: Arc<Metrics>,
     /// The object pool to avoid frequent handle allocating, shared by all shards.
     object_pool: ObjectPool<Box<T>>,
-    event_listener: Option<Arc<dyn EventListener<Key = K, Value = V>>>,
+    event_listener: Option<Arc<dyn EventListener<Key = K, Value = V, HashBuilder = S>>>,
 }
 
 // TODO(MrCroxx): use `expect` after `lint_reasons` is stable.
@@ -84,7 +85,16 @@ where
 
     waiters: HashMap<K, Vec<oneshot::Sender<GenericCacheEntry<K, V, E, I, S>>>>,
 
-    state: Arc<SharedState<K, V, E::Handle>>,
+    state: Arc<SharedState<K, V, S, E::Handle>>,
+
+    /// A weak reference for the cache to avoid circle arc references.
+    ///
+    /// Useful for creating entry from the shard directly.
+    cache: Weak<GenericCache<K, V, E, I, S>>,
+    /// [`TypeId`]` of the generic cache.
+    ///
+    /// Useful for creating entry from the shard directly.
+    tid: TypeId,
 }
 
 impl<K, V, E, I, S> GenericCacheShard<K, V, E, I, S>
@@ -100,18 +110,24 @@ where
         capacity: usize,
         eviction_config: &E::Config,
         usage: Arc<AtomicUsize>,
-        context: Arc<SharedState<K, V, E::Handle>>,
+        state: Arc<SharedState<K, V, S, E::Handle>>,
     ) -> Self {
         let indexer = I::new();
         let eviction = unsafe { E::new(capacity, eviction_config) };
         let waiters = HashMap::default();
+        // Create a phantom weak reference, will be set later by the cache.
+        let cache = Weak::new();
+        // Create a phantom type id, will be set later by the cache.
+        let tid = TypeId::of::<()>();
         Self {
             indexer,
             eviction,
             capacity,
             usage,
             waiters,
-            state: context,
+            state,
+            cache,
+            tid,
         }
     }
 
@@ -321,6 +337,28 @@ where
             return None;
         }
 
+        // TODO(MrCroxx): use `if_let_chains` after stable.
+        if !handle.base().is_deposit() {
+            if let Some(listener) = self.state.event_listener.as_ref() {
+                let nrh = GenericCacheEntryNoReferenceHandle {
+                    cache: &self.cache,
+                    _shard: self,
+                    ptr,
+                    tid: self.tid,
+                };
+
+                listener.on_no_reference(&nrh.into());
+
+                if handle.base().has_refs() {
+                    if handle.base().is_in_eviction() {
+                        self.eviction.remove(ptr);
+                    }
+                    handle.base_mut().set_deposit(true);
+                    return None;
+                }
+            }
+        }
+
         strict_assert!(handle.base().is_inited());
         strict_assert!(!handle.base().has_refs());
 
@@ -392,7 +430,7 @@ where
     pub object_pool_capacity: usize,
     pub hash_builder: S,
     pub weighter: Arc<dyn Weighter<K, V>>,
-    pub event_listener: Option<Arc<dyn EventListener<Key = K, Value = V>>>,
+    pub event_listener: Option<Arc<dyn EventListener<Key = K, Value = V, HashBuilder = S>>>,
 }
 
 type GenericFetchHit<K, V, E, I, S> = Option<GenericCacheEntry<K, V, E, I, S>>;
@@ -490,7 +528,7 @@ where
     capacity: usize,
     usages: Vec<Arc<AtomicUsize>>,
 
-    context: Arc<SharedState<K, V, E::Handle>>,
+    context: Arc<SharedState<K, V, S, E::Handle>>,
 
     hash_builder: S,
     weighter: Arc<dyn Weighter<K, V>>,
@@ -507,7 +545,7 @@ where
     I: Indexer<Key = K, Handle = E::Handle>,
     S: HashBuilder,
 {
-    pub fn new(config: GenericCacheConfig<K, V, E, S>) -> Self {
+    pub fn new(config: GenericCacheConfig<K, V, E, S>) -> Arc<Self> {
         let metrics = Arc::new(Metrics::new(&config.name));
 
         let usages = (0..config.shards).map(|_| Arc::new(AtomicUsize::new(0))).collect_vec();
@@ -527,7 +565,7 @@ where
             .map(Mutex::new)
             .collect_vec();
 
-        Self {
+        let this = Self {
             shards,
             capacity: config.capacity,
             usages,
@@ -535,7 +573,17 @@ where
             hash_builder: config.hash_builder,
             weighter: config.weighter,
             _metrics: metrics,
+        };
+        let tid = this.type_id();
+        let this = Arc::new(this);
+
+        for shard in this.shards.iter() {
+            let mut shard = shard.lock();
+            shard.cache = Arc::downgrade(&this);
+            shard.tid = tid;
         }
+
+        this
     }
 
     #[fastrace::trace(name = "foyer::memory::generic::insert")]
@@ -855,7 +903,59 @@ where
     }
 }
 
-pub struct GenericCacheEntry<K, V, E, I, S = RandomState>
+pub struct GenericCacheEntryNoReferenceHandle<'a, K, V, E, I, S>
+where
+    K: Key,
+    V: Value,
+    E: Eviction,
+    E::Handle: KeyedHandle<Key = K, Data = (K, V)>,
+    I: Indexer<Key = K, Handle = E::Handle>,
+    S: HashBuilder,
+{
+    cache: &'a Weak<GenericCache<K, V, E, I, S>>,
+    _shard: &'a GenericCacheShard<K, V, E, I, S>,
+    ptr: NonNull<E::Handle>,
+    tid: TypeId,
+}
+
+impl<'a, K, V, E, I, S> Debug for GenericCacheEntryNoReferenceHandle<'a, K, V, E, I, S>
+where
+    K: Key,
+    V: Value,
+    E: Eviction,
+    E::Handle: KeyedHandle<Key = K, Data = (K, V)>,
+    I: Indexer<Key = K, Handle = E::Handle>,
+    S: HashBuilder,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GenericCacheEntryNoReferenceHandle").finish()
+    }
+}
+
+impl<'a, K, V, E, I, S> GenericCacheEntryNoReferenceHandle<'a, K, V, E, I, S>
+where
+    K: Key,
+    V: Value,
+    E: Eviction,
+    E::Handle: KeyedHandle<Key = K, Data = (K, V)>,
+    I: Indexer<Key = K, Handle = E::Handle>,
+    S: HashBuilder,
+{
+    pub(crate) fn to_entry(&self) -> GenericCacheEntry<K, V, E, I, S> {
+        // Do not need to acquire the shard lock, because it already owns its reference.
+        let mut ptr = self.ptr;
+        unsafe { ptr.as_mut().base_mut().inc_refs() };
+        let cache = self.cache.upgrade().unwrap();
+        GenericCacheEntry { cache, ptr }
+    }
+
+    /// [`TypeId`] of the related generic cache.
+    pub(crate) fn tid(&self) -> TypeId {
+        self.tid
+    }
+}
+
+pub struct GenericCacheEntry<K, V, E, I, S>
 where
     K: Key,
     V: Value,
@@ -1056,7 +1156,7 @@ mod tests {
 
     #[test]
     fn test_fifo_cache_fuzzy() {
-        fuzzy(Arc::new(FifoCache::<u64, u64>::new(GenericCacheConfig {
+        fuzzy(FifoCache::<u64, u64>::new(GenericCacheConfig {
             name: "test".to_string(),
             capacity: 256,
             shards: 4,
@@ -1065,12 +1165,12 @@ mod tests {
             hash_builder: RandomState::default(),
             weighter: Arc::new(|_, _| 1),
             event_listener: None,
-        })))
+        }))
     }
 
     #[test]
     fn test_lru_cache_fuzzy() {
-        fuzzy(Arc::new(LruCache::<u64, u64>::new(GenericCacheConfig {
+        fuzzy(LruCache::<u64, u64>::new(GenericCacheConfig {
             name: "test".to_string(),
             capacity: 256,
             shards: 4,
@@ -1079,12 +1179,12 @@ mod tests {
             hash_builder: RandomState::default(),
             weighter: Arc::new(|_, _| 1),
             event_listener: None,
-        })))
+        }))
     }
 
     #[test]
     fn test_lfu_cache_fuzzy() {
-        fuzzy(Arc::new(LfuCache::<u64, u64>::new(GenericCacheConfig {
+        fuzzy(LfuCache::<u64, u64>::new(GenericCacheConfig {
             name: "test".to_string(),
             capacity: 256,
             shards: 4,
@@ -1093,12 +1193,12 @@ mod tests {
             hash_builder: RandomState::default(),
             weighter: Arc::new(|_, _| 1),
             event_listener: None,
-        })))
+        }))
     }
 
     #[test]
     fn test_s3fifo_cache_fuzzy() {
-        fuzzy(Arc::new(S3FifoCache::<u64, u64>::new(GenericCacheConfig {
+        fuzzy(S3FifoCache::<u64, u64>::new(GenericCacheConfig {
             name: "test".to_string(),
             capacity: 256,
             shards: 4,
@@ -1107,7 +1207,7 @@ mod tests {
             hash_builder: RandomState::default(),
             weighter: Arc::new(|_, _| 1),
             event_listener: None,
-        })))
+        }))
     }
 
     fn fifo(capacity: usize) -> Arc<FifoCache<u64, String>> {
@@ -1121,7 +1221,7 @@ mod tests {
             weighter: Arc::new(|_, v: &String| v.len()),
             event_listener: None,
         };
-        Arc::new(FifoCache::<u64, String>::new(config))
+        FifoCache::<u64, String>::new(config)
     }
 
     fn lru(capacity: usize) -> Arc<LruCache<u64, String>> {
@@ -1137,7 +1237,7 @@ mod tests {
             weighter: Arc::new(|_, v: &String| v.len()),
             event_listener: None,
         };
-        Arc::new(LruCache::<u64, String>::new(config))
+        LruCache::<u64, String>::new(config)
     }
 
     fn insert_fifo(cache: &Arc<FifoCache<u64, String>>, key: u64, value: &str) -> FifoCacheEntry<u64, String> {

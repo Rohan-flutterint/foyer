@@ -20,12 +20,14 @@ use ahash::RandomState;
 
 pub use common::{
     buf::{BufExt, BufMutExt},
-    code::{Key, StorageKey, StorageValue, Value},
-    event::EventListener,
+    code::{HashBuilder, Key, StorageKey, StorageValue, Value},
     range::RangeBoundsExt,
     tracing::TracingConfig,
 };
-pub use memory::{CacheContext, EvictionConfig, FetchState, FifoConfig, LfuConfig, LruConfig, S3FifoConfig};
+pub use memory::{
+    CacheContext, CacheEntry, CacheEntryNoReferenceHandle, EventListener, EvictionConfig, FetchState, FifoConfig,
+    LfuConfig, LruConfig, S3FifoConfig,
+};
 pub use storage::{
     AdmissionPicker, AdmitAllPicker, Compression, Dev, DevExt, DevOptions, DeviceStats, DirectFileDevice,
     DirectFileDeviceOptions, DirectFileDeviceOptionsBuilder, DirectFsDevice, DirectFsDeviceOptions,

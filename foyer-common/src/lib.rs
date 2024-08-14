@@ -30,8 +30,6 @@ pub mod code;
 pub mod compact_bloom_filter;
 /// A concurrent count down util.
 pub mod countdown;
-/// Components for monitoring internal events.
-pub mod event;
 /// Future extensions.
 pub mod future;
 /// The shared metrics for foyer.

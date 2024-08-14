@@ -66,6 +66,7 @@
 
 mod cache;
 mod context;
+mod event;
 mod eviction;
 mod generic;
 mod handle;
