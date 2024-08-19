@@ -545,8 +545,8 @@ where
             let cid = AtomicUsize::new(16);
             builder.on_thread_start(move || {
                 let c = cid.fetch_add(1, Ordering::SeqCst);
-                let cid = cids[c];
-                core_affinity::set_for_current(cids[c]);
+                let cid = cids[c % cids.len()];
+                core_affinity::set_for_current(cid);
                 let tid = std::thread::current().id();
                 println!("[store]: set core affinity for thread {tid:?} to {cid:?}");
             });
