@@ -13,6 +13,11 @@
 //  limitations under the License.
 
 use foyer_common::{asyncify::asyncify_with_runtime, bits, fs::freespace};
+use libc::SYS_perf_event_open;
+use perf_event::{
+    events::{Hardware, Software},
+    Counter,
+};
 use tokio::runtime::Handle;
 
 use super::{Dev, DevExt, DevOptions, RegionId};
@@ -22,9 +27,11 @@ use crate::{
     IoBytes, IoBytesMut,
 };
 use std::{
+    cell::RefCell,
     fs::{create_dir_all, File, OpenOptions},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 /// Options for the direct file device.
@@ -130,7 +137,32 @@ impl DirectFileDevice {
             #[cfg(target_family = "windows")]
             use std::os::windows::fs::FileExt;
 
+            let cids = unsafe { libc::sched_getcpu() };
+            
+            let mut counter = perf_event::Builder::new(Software::CONTEXT_SWITCHES).exclude_kernel(false).one_cpu(cids as _).build().unwrap();
+            
+            counter.enable().unwrap();
+            let now = std::time::Instant::now();
             let read = file.read_at(buf.as_mut(), offset)?;
+            let elapsed = now.elapsed();
+            counter.disable().unwrap();
+            let cs = counter.read().unwrap();
+            // if elapsed.as_micros() < 200 {
+            //     let cide = unsafe { libc::sched_getcpu() };
+            //     println!(
+            //         "<========== pread head: {elapsed:?}, offset: {offset}, len: {len}, aligned: {aligned}, cids: {cids}, cide: {cide}, cs: {cs}",
+            //         cs = counter.read().unwrap(),
+            //     );
+            // }
+            if cs == 0 {
+                println!("no context switch!");
+            }
+            if elapsed.as_micros() > 3000 {
+                let cide = unsafe { libc::sched_getcpu() };
+                println!(
+                    "==========> pread tail: {elapsed:?}, offset: {offset}, len: {len}, aligned: {aligned}, cids: {cids}, cide: {cide}, cs: {cs}",
+                );
+            }
             if read != aligned {
                 return Err(anyhow::anyhow!("read {read}, expected: {aligned}").into());
             }

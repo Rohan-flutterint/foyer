@@ -57,10 +57,14 @@ use crate::analyze::IoStat;
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(author, version, about)]
 #[command(group = ArgGroup::new("exclusive").required(true).args(&["file", "dir"]))]
 pub struct Args {
+    /// Path to the configuration file.
+    #[arg(short, long)]
+    config: Option<String>,
+
     /// File for disk cache data. Use `DirectFile` as device.
     ///
     /// Either `file` or `dir` must be set.

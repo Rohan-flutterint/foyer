@@ -42,7 +42,17 @@ use foyer_common::{
     runtime::BackgroundShutdownRuntime,
 };
 use foyer_memory::{Cache, CacheEntry};
-use std::{borrow::Borrow, fmt::Debug, hash::Hash, marker::PhantomData, sync::Arc, time::Instant};
+use std::{
+    borrow::Borrow,
+    fmt::Debug,
+    hash::Hash,
+    marker::PhantomData,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Instant,
+};
 use tokio::runtime::Handle;
 
 /// The disk cache engine that serves as the storage backend of `foyer`.
@@ -531,6 +541,15 @@ where
                 builder.max_blocking_threads(self.runtime_config.max_blocking_threads);
             }
             builder.thread_name(&self.name);
+            let cids = core_affinity::get_core_ids().unwrap();
+            let cid = AtomicUsize::new(16);
+            builder.on_thread_start(move || {
+                let c = cid.fetch_add(1, Ordering::SeqCst);
+                let cid = cids[c];
+                core_affinity::set_for_current(cids[c]);
+                let tid = std::thread::current().id();
+                println!("[store]: set core affinity for thread {tid:?} to {cid:?}");
+            });
             let runtime = builder.enable_all().build().map_err(anyhow::Error::from)?;
             let runtime = BackgroundShutdownRuntime::from(runtime);
             Arc::new(runtime)
