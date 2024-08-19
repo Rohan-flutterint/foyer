@@ -125,9 +125,10 @@ impl DirectFileDevice {
         );
 
         let mut buf = IoBytesMut::with_capacity(aligned);
-        unsafe {
-            buf.set_len(aligned);
-        }
+        // unsafe {
+        //     buf.set_len(aligned);
+        // }
+        buf.resize(aligned, 0);
 
         let file = self.file.clone();
         let mut buffer = asyncify_with_runtime(&self.runtime, move || {
