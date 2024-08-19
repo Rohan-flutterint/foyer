@@ -147,17 +147,10 @@ impl DirectFileDevice {
             let elapsed = now.elapsed();
             counter.disable().unwrap();
             let cs = counter.read().unwrap();
-            // if elapsed.as_micros() < 200 {
-            //     let cide = unsafe { libc::sched_getcpu() };
-            //     println!(
-            //         "<========== pread head: {elapsed:?}, offset: {offset}, len: {len}, aligned: {aligned}, cids: {cids}, cide: {cide}, cs: {cs}",
-            //         cs = counter.read().unwrap(),
-            //     );
-            // }
             if cs == 0 {
                 println!("no context switch!");
             }
-            if elapsed.as_micros() > 3000 {
+            if elapsed.as_micros() > 2000 {
                 let cide = unsafe { libc::sched_getcpu() };
                 println!(
                     "==========> pread tail: {elapsed:?}, offset: {offset}, len: {len}, aligned: {aligned}, cids: {cids}, cide: {cide}, cs: {cs}",
