@@ -485,7 +485,6 @@ where
             context,
             || {
                 let metrics = self.metrics.clone();
-                let user_runtime_handle = self.storage().runtimes().user_runtime_handle.clone();
 
                 async move {
                     match store.load(&key).await.map_err(anyhow::Error::from) {
@@ -502,17 +501,13 @@ where
                     metrics.hybrid_miss.increment(1);
                     metrics.hybrid_miss_duration.record(now.elapsed());
 
-                    user_runtime_handle
-                        .spawn(
-                            future
-                                .map(|res| Diversion {
-                                    target: res,
-                                    store: Some(FetchMark),
-                                })
-                                .in_span(Span::enter_with_local_parent("foyer::hybrid::fetch::fn")),
-                        )
+                    future
+                        .map(|res| Diversion {
+                            target: res,
+                            store: Some(FetchMark),
+                        })
+                        .in_span(Span::enter_with_local_parent("foyer::hybrid::fetch::fn"))
                         .await
-                        .unwrap()
                 }
             },
             self.storage().runtimes().read_runtime_handle,
