@@ -305,6 +305,8 @@ pub enum RuntimeConfig {
         read_runtime_config: TokioRuntimeConfig,
         /// Dedicated runtime for both foreground and background writes
         write_runtime_config: TokioRuntimeConfig,
+        /// Dedicated runtime for disk io.
+        io_runtime_config: TokioRuntimeConfig,
     },
 }
 
@@ -570,25 +572,27 @@ where
         };
 
         let user_runtime_handle = Handle::current();
-        let (read_runtime, write_runtime) = match self.runtime_config {
+        let (read_runtime, write_runtime, io_runtime) = match self.runtime_config {
             RuntimeConfig::Disabled => {
                 tracing::warn!("[store]: Dedicated runtime is disabled");
-                (None, None)
+                (None, None, None)
             }
             RuntimeConfig::Unified(runtime_config) => {
                 let runtime = build_runtime(&runtime_config, "unified")?;
-                (Some(runtime.clone()), Some(runtime.clone()))
+                (Some(runtime.clone()), Some(runtime.clone()), Some(runtime.clone()))
             }
             RuntimeConfig::Separated {
                 read_runtime_config,
                 write_runtime_config,
+                io_runtime_config,
             } => {
                 let read_runtime = build_runtime(&read_runtime_config, "read")?;
                 let write_runtime = build_runtime(&write_runtime_config, "write")?;
-                (Some(read_runtime), Some(write_runtime))
+                let io_runtime = build_runtime(&io_runtime_config, "io")?;
+                (Some(read_runtime), Some(write_runtime), Some(io_runtime))
             }
         };
-        let runtime = Runtime::new(read_runtime, write_runtime, user_runtime_handle);
+        let runtime = Runtime::new(read_runtime, write_runtime, io_runtime, user_runtime_handle);
 
         let engine = {
             let statistics = statistics.clone();

@@ -89,7 +89,7 @@ impl DirectFileDevice {
 
         let file = self.file.clone();
 
-        asyncify_with_runtime(self.runtime.write(), move || {
+        asyncify_with_runtime(self.runtime.user(), move || {
             #[cfg(target_family = "windows")]
             let written = {
                 use std::os::windows::fs::FileExt;
@@ -132,7 +132,7 @@ impl DirectFileDevice {
 
         let file = self.file.clone();
 
-        let mut buffer = asyncify_with_runtime(self.runtime.read(), move || {
+        let mut buffer = asyncify_with_runtime(self.runtime.user(), move || {
             #[cfg(target_family = "windows")]
             let read = {
                 use std::os::windows::fs::FileExt;
@@ -250,7 +250,7 @@ impl Dev for DirectFileDevice {
     #[fastrace::trace(name = "foyer::storage::device::direct_file::flush")]
     async fn flush(&self, _: Option<RegionId>) -> Result<()> {
         let file = self.file.clone();
-        asyncify_with_runtime(self.runtime.write(), move || file.sync_all().map_err(Error::from)).await
+        asyncify_with_runtime(self.runtime.user(), move || file.sync_all().map_err(Error::from)).await
     }
 }
 

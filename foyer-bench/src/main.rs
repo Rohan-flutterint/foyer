@@ -200,6 +200,18 @@ pub struct Args {
     #[arg(long, default_value_t = 0)]
     read_runtime_max_blocking_threads: usize,
 
+    /// Dedicated runtime for io worker threads.
+    ///
+    /// Only valid when using separated dedicated runtime.
+    #[arg(long, default_value_t = 0)]
+    io_runtime_worker_threads: usize,
+
+    /// Dedicated runtime for io Max threads for blocking io.
+    ///
+    /// Only valid when using separated dedicated runtime.
+    #[arg(long, default_value_t = 0)]
+    io_runtime_max_blocking_threads: usize,
+
     /// compression algorithm
     #[arg(long, value_enum, default_value_t = Compression::None)]
     compression: Compression,
@@ -492,6 +504,10 @@ async fn benchmark(args: Args) {
                 write_runtime_config: TokioRuntimeConfig {
                     worker_threads: args.write_runtime_worker_threads,
                     max_blocking_threads: args.write_runtime_max_blocking_threads,
+                },
+                io_runtime_config: TokioRuntimeConfig {
+                    worker_threads: args.io_runtime_worker_threads,
+                    max_blocking_threads: args.io_runtime_max_blocking_threads,
                 },
             },
             _ => unreachable!(),

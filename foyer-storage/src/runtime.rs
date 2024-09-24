@@ -24,6 +24,7 @@ struct RuntimeInner {
 
     read_runtime_handle: SingletonHandle,
     write_runtime_handle: SingletonHandle,
+    io_runtime_handle: SingletonHandle,
     user_runtime_handle: SingletonHandle,
 }
 
@@ -38,23 +39,33 @@ impl Runtime {
     pub fn new(
         read_runtime: Option<Arc<BackgroundShutdownRuntime>>,
         write_runtime: Option<Arc<BackgroundShutdownRuntime>>,
+        io_runtime: Option<Arc<BackgroundShutdownRuntime>>,
         user_runtime_handle: Handle,
     ) -> Self {
         let read_runtime_handle = read_runtime
             .as_ref()
             .map(|rt| rt.handle().clone())
-            .unwrap_or(user_runtime_handle.clone());
+            .unwrap_or(user_runtime_handle.clone())
+            .into();
         let write_runtime_handle = write_runtime
             .as_ref()
             .map(|rt| rt.handle().clone())
-            .unwrap_or(user_runtime_handle.clone());
+            .unwrap_or(user_runtime_handle.clone())
+            .into();
+        let io_runtime_handle = io_runtime
+            .as_ref()
+            .map(|rt| rt.handle().clone())
+            .unwrap_or(user_runtime_handle.clone())
+            .into();
+        let user_runtime_handle = user_runtime_handle.into();
         Self {
             inner: Arc::new(RuntimeInner {
                 _read_runtime: read_runtime,
                 _write_runtime: write_runtime,
-                read_runtime_handle: read_runtime_handle.into(),
-                write_runtime_handle: write_runtime_handle.into(),
-                user_runtime_handle: user_runtime_handle.into(),
+                read_runtime_handle,
+                write_runtime_handle,
+                io_runtime_handle,
+                user_runtime_handle,
             }),
         }
     }
@@ -67,6 +78,7 @@ impl Runtime {
                 _write_runtime: None,
                 read_runtime_handle: Handle::current().into(),
                 write_runtime_handle: Handle::current().into(),
+                io_runtime_handle: Handle::current().into(),
                 user_runtime_handle: Handle::current().into(),
             }),
         }
@@ -80,6 +92,11 @@ impl Runtime {
     /// Get the non-clonable write runtime handle.
     pub fn write(&self) -> &SingletonHandle {
         &self.inner.write_runtime_handle
+    }
+
+    /// Get the non-clonable io runtime handle.
+    pub fn io(&self) -> &SingletonHandle {
+        &self.inner.io_runtime_handle
     }
 
     /// Get the non-clonable user runtime handle.

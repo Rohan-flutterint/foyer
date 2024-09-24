@@ -560,7 +560,7 @@ mod tests {
             tombstone_log_config: None,
             buffer_threshold: 16 * 1024 * 1024,
             statistics: Arc::<Statistics>::default(),
-            runtime: Runtime::new(None, None, Handle::current()),
+            runtime: Runtime::new(None, None, None, Handle::current()),
             marker: PhantomData,
         };
         GenericLargeStorage::open(config).await.unwrap()
@@ -589,7 +589,7 @@ mod tests {
             tombstone_log_config: Some(TombstoneLogConfigBuilder::new(path).with_flush(true).build()),
             buffer_threshold: 16 * 1024 * 1024,
             statistics: Arc::<Statistics>::default(),
-            runtime: Runtime::new(None, None, Handle::current()),
+            runtime: Runtime::new(None, None, None, Handle::current()),
             marker: PhantomData,
         };
         GenericLargeStorage::open(config).await.unwrap()
