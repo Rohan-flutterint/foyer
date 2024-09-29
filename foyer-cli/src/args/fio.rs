@@ -12,13 +12,55 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
-use std::{collections::HashSet, process::Command};
+use std::{collections::HashSet, fmt::Display, process::Command, str::FromStr};
 
 use anyhow::anyhow;
 
 use crate::args::error::{Error, Result};
 
-type IoEngine = String;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IoEngine {
+    IoUring,
+    Psync,
+    LibAio,
+    PosixAio,
+}
+
+impl FromStr for IoEngine {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "io_uring" => Ok(Self::IoUring),
+            "psync" => Ok(Self::Psync),
+            "libaio" => Ok(Self::LibAio),
+            "posixaio" => Ok(Self::PosixAio),
+            other => Err(other.to_string()),
+        }
+    }
+}
+
+impl Display for IoEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IoEngine::IoUring => write!(f, "io_uring"),
+            IoEngine::Psync => write!(f, "psync"),
+            IoEngine::LibAio => write!(f, "libaio"),
+            IoEngine::PosixAio => write!(f, "posixaio"),
+        }
+    }
+}
+
+impl IoEngine {
+    pub fn asynchronous(&self) -> bool {
+        match self {
+            IoEngine::IoUring => true,
+            IoEngine::Psync => true,
+            IoEngine::LibAio => true,
+            IoEngine::PosixAio => false,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Fio {
@@ -58,8 +100,8 @@ impl Fio {
             .split('\n')
             .skip(1)
             .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(String::from)
+            .filter(|s: &&str| !s.is_empty())
+            .flat_map(|s| s.parse())
             .collect();
 
         Ok(io_engines)
