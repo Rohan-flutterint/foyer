@@ -17,6 +17,7 @@ use std::{
     sync::Arc,
 };
 
+use crossbeam::utils::CachePadded;
 use itertools::Itertools;
 use parking_lot::RwLock;
 
@@ -40,12 +41,16 @@ pub struct EntryAddress {
 /// [`Indexer`] records key hash to entry address on fs.
 #[derive(Debug, Clone)]
 pub struct Indexer {
-    shards: Arc<Vec<RwLock<HashMap<u64, EntryAddress>>>>,
+    shards: Arc<Vec<CachePadded<RwLock<HashMap<u64, EntryAddress>>>>>,
 }
 
 impl Indexer {
     pub fn new(shards: usize) -> Self {
-        let shards = (0..shards).map(|_| RwLock::new(HashMap::new())).collect_vec();
+        let shards = (0..shards)
+            .map(|_| HashMap::new())
+            .map(RwLock::new)
+            .map(CachePadded::new)
+            .collect_vec();
         Self {
             shards: Arc::new(shards),
         }

@@ -24,6 +24,7 @@ license = "Apache-2.0"
 readme = "README.md"
 
 [workspace.dependencies]
+crossbeam = "0.8"
 tokio = { package = "madsim-tokio", version = "0.2", features = [
     "rt",
     "rt-multi-thread",

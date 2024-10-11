@@ -12,6 +12,7 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
+use crossbeam::utils::CachePadded;
 use itertools::Itertools;
 use ordered_hash_map::OrderedHashMap;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard};
@@ -23,7 +24,7 @@ use super::set::{SetId, SetStorage};
 /// Simple FIFO cache.
 #[derive(Debug)]
 pub struct SetCache {
-    shards: Vec<RwLock<OrderedHashMap<SetId, SetStorage>>>,
+    shards: Vec<CachePadded<RwLock<OrderedHashMap<SetId, SetStorage>>>>,
     shard_capacity: usize,
 }
 
@@ -31,7 +32,9 @@ impl SetCache {
     pub fn new(capacity: usize, shards: usize) -> Self {
         let shard_capacity = capacity / shards;
         let shards = (0..shards)
-            .map(|_| RwLock::new(OrderedHashMap::with_capacity(shard_capacity)))
+            .map(|_| OrderedHashMap::with_capacity(shard_capacity))
+            .map(RwLock::new)
+            .map(CachePadded::new)
             .collect_vec();
         Self { shards, shard_capacity }
     }

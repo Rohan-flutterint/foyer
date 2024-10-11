@@ -28,6 +28,7 @@ use std::{
 };
 
 use ahash::RandomState;
+use crossbeam::utils::CachePadded;
 use fastrace::{future::InSpan, prelude::*};
 use foyer_common::{
     code::{HashBuilder, Key, Value},
@@ -474,7 +475,7 @@ where
     I: Indexer<Key = K, Handle = E::Handle>,
     S: HashBuilder,
 {
-    shards: Vec<Mutex<GenericCacheShard<K, V, E, I, S>>>,
+    shards: Vec<CachePadded<Mutex<GenericCacheShard<K, V, E, I, S>>>>,
 
     capacity: usize,
     usages: Vec<Arc<AtomicUsize>>,
@@ -514,6 +515,7 @@ where
                 GenericCacheShard::new(shard_capacity, &config.eviction_config, usage.clone(), context.clone())
             })
             .map(Mutex::new)
+            .map(CachePadded::new)
             .collect_vec();
 
         Self {

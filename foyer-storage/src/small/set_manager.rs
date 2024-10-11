@@ -15,6 +15,7 @@
 use std::{collections::HashSet, fmt::Debug, ops::Range, sync::Arc};
 
 use bytes::{Buf, BufMut};
+use crossbeam::utils::CachePadded;
 use foyer_common::code::{HashBuilder, StorageKey, StorageValue};
 use itertools::Itertools;
 use parking_lot::RwLock;
@@ -55,10 +56,10 @@ use crate::{
 /// ```
 struct SetManagerInner {
     // TODO(MrCroxx): Refine this!!! Make `Set` a RAII type.
-    sets: Vec<AsyncRwLock<()>>,
+    sets: Vec<CachePadded<AsyncRwLock<()>>>,
     /// As a cache, it is okay that the bloom filter returns a false-negative result, which doesn't break the
     /// correctness.
-    loose_bloom_filters: Vec<RwLock<BloomFilterU64<4>>>,
+    loose_bloom_filters: Vec<CachePadded<RwLock<BloomFilterU64<4>>>>,
     set_cache: SetCache,
     metadata: AsyncRwLock<Metadata>,
     set_picker: SetPicker,
@@ -111,9 +112,17 @@ impl SetManager {
         let metadata = AsyncRwLock::new(metadata);
 
         let set_cache = SetCache::new(config.set_cache_capacity, config.set_cache_shards);
-        let loose_bloom_filters = (0..sets).map(|_| RwLock::new(BloomFilterU64::new())).collect_vec();
+        let loose_bloom_filters = (0..sets)
+            .map(|_| BloomFilterU64::new())
+            .map(RwLock::new)
+            .map(CachePadded::new)
+            .collect_vec();
 
-        let sets = (0..sets).map(|_| AsyncRwLock::default()).collect_vec();
+        let sets = (0..sets)
+            .map(|_| ())
+            .map(AsyncRwLock::new)
+            .map(CachePadded::new)
+            .collect_vec();
 
         let inner = SetManagerInner {
             sets,
