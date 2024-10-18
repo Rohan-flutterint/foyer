@@ -7,7 +7,11 @@ members = [
     "foyer-cli",
     "foyer-common",
     "foyer-intrusive",
+    "foyer-intrusive-v2",
+    "foyer-intrusive-derive",
     "foyer-memory",
+    "foyer-memory-v2",
+    "foyer-memory-v3",
     "foyer-storage",
     "foyer-util",
 ]
@@ -51,12 +55,17 @@ tokio = { package = "madsim-tokio", version = "0.2", features = [
 # foyer components
 foyer-common = { version = "0.12.2", path = "foyer-common" }
 foyer-intrusive = { version = "0.12.2", path = "foyer-intrusive" }
+foyer-intrusive-v2 = { version = "0.12.2", path = "foyer-intrusive-v2" }
 foyer-memory = { version = "0.12.2", path = "foyer-memory" }
 foyer-storage = { version = "0.12.2", path = "foyer-storage" }
 foyer = { version = "0.12.2", path = "foyer" }
 
+[workspace.lints.clippy]
+allow_attributes = "warn"
+
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(madsim)'] }
+missing_docs = "warn"
 
 [profile.release]
 debug = "full"
