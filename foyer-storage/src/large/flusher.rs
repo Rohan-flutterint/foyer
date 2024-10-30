@@ -289,6 +289,7 @@ where
             let stats = self.stats.clone();
             let flush = self.flush;
             async move {
+                println!("==========> wait clean region (pre)");
                 // Wait for region is clean.
                 let region = group.region.handle.await;
                 tracing::trace!(
@@ -297,7 +298,9 @@ where
                     offset = group.region.offset,
                     buf_len = group.bytes.len(),
                 );
+                println!("==========> wait clean region (post)");
 
+                println!("==========> wait data (pre)");
                 // Write buffer to device.
                 let size: usize = group.bytes.len();
                 if size > 0 {
@@ -307,6 +310,8 @@ where
                     }
                     stats.cache_write_bytes.fetch_add(size, Ordering::Relaxed);
                 }
+                println!("==========> wait data (post)");
+
                 let mut indices = group.indices;
                 for haddr in indices.iter_mut() {
                     haddr.address.region = region.id();
@@ -319,6 +324,7 @@ where
                 // Make sure entries are dropped after written.
                 drop(group.entries);
                 tracing::trace!("[flusher]: write region {id} finish.", id = region.id());
+                println!("==========> exit tombstone log write");
                 Ok::<_, Error>(())
             }
         });
@@ -339,6 +345,7 @@ where
                             .fetch_add(stats.size, Ordering::Relaxed);
                     }
                 }
+                println!("==========> exit tombstone log write");
                 Ok::<_, Error>(())
             }
         };
