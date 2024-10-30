@@ -487,6 +487,8 @@ where
 
     /// Build the disk cache store with the given configuration.
     pub async fn build(self) -> Result<Store<K, V, S>> {
+        println!("==========> flushers: {:?}", self.large.flushers);
+
         let memory = self.memory.clone();
         let admission_picker = self.admission_picker.clone();
 
