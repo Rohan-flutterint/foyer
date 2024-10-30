@@ -289,6 +289,8 @@ where
             None => self.append_group(),
         }
 
+        println!("==========> rotate {} waiters", waiters.len());
+
         Some(Batch {
             groups,
             tombstones,
