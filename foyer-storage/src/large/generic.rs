@@ -287,8 +287,11 @@ where
         let wait_flushers = join_all(self.inner.flushers.iter().map(|flusher| flusher.wait()));
         let wait_reclaimers = join_all(self.inner.reclaimers.iter().map(|reclaimer| reclaimer.wait()));
         async move {
+            println!("==========> eeeeeeeeee");
             wait_flushers.await;
+            println!("==========> ffffffffff");
             wait_reclaimers.await;
+            println!("==========> gggggggggg");
         }
     }
 
@@ -433,8 +436,12 @@ where
             stats: None,
         });
 
+        println!("==========> aaaaaaaaaa");
+
         // Wait all inflight data to finish.
         self.wait().await;
+
+        println!("==========> bbbbbbbbbb");
 
         // Clear indices.
         //
@@ -442,11 +449,15 @@ where
         // otherwise the indices of the latest batch cannot be cleared.
         self.inner.indexer.clear();
 
+        println!("==========> cccccccccc");
+
         // Update manifest watermark to prevent stale regions to be read in future.
         self.inner
             .manifest
             .update_sequence_watermark(self.inner.sequence.fetch_add(1, Ordering::Relaxed))
             .await?;
+
+        println!("==========> dddddddddd");
 
         Ok(())
     }
