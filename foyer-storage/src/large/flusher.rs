@@ -344,6 +344,8 @@ where
             tracing::error!("[flusher]: error raised when committing batch, error: {e}");
         }
 
+        println!("===========> commit {} waiters", batch.waiters.len());
+
         for waiter in batch.waiters {
             println!("==========> notify waiter (pre)");
             let _ = waiter.send(());
