@@ -280,6 +280,8 @@ where
     async fn commit(&mut self, batch: Batch<K, V, S>, permit: OwnedSemaphorePermit) {
         tracing::trace!("[flusher] commit batch: {batch:?}");
 
+        println!("===========> got {} waiters", batch.waiters.len());
+
         // Write regions concurrently.
         let futures = batch.groups.into_iter().map(|group| {
             let indexer = self.indexer.clone();
@@ -340,9 +342,11 @@ where
                 Ok::<_, Error>(())
             }
         };
+        println!("===========> join write (pre) ");
         if let Err(e) = try_join(try_join_all(futures), future).await {
             tracing::error!("[flusher]: error raised when committing batch, error: {e}");
         }
+        println!("===========> join write (post) ");
 
         println!("===========> commit {} waiters", batch.waiters.len());
 
