@@ -225,13 +225,16 @@ where
     pub fn wait(&mut self, tx: oneshot::Sender<()>) {
         tracing::trace!("[batch]: register waiter");
         self.may_init();
+        println!("==========> push waiter (pre)");
         self.waiters.push(tx);
+        println!("==========> push waiter (post)");
     }
 
     pub fn rotate(&mut self) -> Option<Batch<K, V, S>> {
         tracing::trace!("[lodc batch]: rotate");
 
         if self.is_empty() {
+            println!("==========> rotate empty batch");
             return None;
         }
 

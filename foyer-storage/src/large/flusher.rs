@@ -194,9 +194,13 @@ where
 
     pub fn wait(&self) -> impl Future<Output = ()> + Send + 'static {
         let (tx, rx) = oneshot::channel();
+        println!("==========> submit wait tx (pre)");
         self.submit(Submission::Wait { tx });
+        println!("==========> submit wait tx (post)");
         async move {
+            println!("==========> wait for rx (pre)");
             let _ = rx.await;
+            println!("==========> wait for rx (post)");
         }
     }
 }
@@ -341,7 +345,9 @@ where
         }
 
         for waiter in batch.waiters {
+            println!("==========> notify waiter (pre)");
             let _ = waiter.send(());
+            println!("==========> notify waiter (post)");
         }
 
         if let Some(init) = batch.init.as_ref() {
