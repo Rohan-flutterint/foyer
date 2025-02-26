@@ -8,6 +8,7 @@ members = [
   "foyer-common",
   "foyer-memory",
   "foyer-storage",
+  "foyer-storage-v2",
 ]
 
 [workspace.package]

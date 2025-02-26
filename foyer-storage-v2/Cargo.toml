@@ -1,0 +1,85 @@
+[package]
+name = "foyer-storage-v2"
+description = "storage engine for foyer - Hybrid cache for Rust"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+keywords = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+
+[dependencies]
+ahash = { workspace = true }
+# TODO(MrCroxx): Remove this after `allocator_api` is stable.
+allocator-api2 = "0.2"
+anyhow = "1.0"
+# TODO(MrCroxx): use `array_chunks` after `#![feature(array_chunks)]` is stable.
+array-util = "1"
+auto_enums = { version = "0.8", features = ["futures03"] }
+bincode = "1"
+bytes = "1"
+clap = { workspace = true }
+equivalent = { workspace = true }
+fastrace = { workspace = true }
+flume = "0.11"
+foyer-common = { workspace = true }
+foyer-memory = { workspace = true }
+fs4 = { version = "0.12", default-features = false }
+futures-core = { workspace = true }
+futures-util = { workspace = true }
+itertools = { workspace = true }
+libc = "0.2"
+lz4 = "1.24"
+ordered_hash_map = "0.4"
+parking_lot = { workspace = true }
+paste = "1"
+pin-project = "1"
+rand = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+twox-hash = "2"
+zstd = "0.13"
+
+[dev-dependencies]
+bytesize = { workspace = true }
+tempfile = "3"
+test-log = { workspace = true }
+
+[target.'cfg(madsim)'.dependencies]
+tokio = { package = "madsim-tokio", version = "0.2", features = [
+  "rt",
+  "rt-multi-thread",
+  "sync",
+  "macros",
+  "time",
+  "signal",
+  "fs",
+] }
+
+[target.'cfg(not(madsim))'.dependencies]
+tokio = { package = "tokio", version = "1", features = [
+  "rt",
+  "rt-multi-thread",
+  "sync",
+  "macros",
+  "time",
+  "signal",
+  "fs",
+] }
+
+[features]
+default = []
+deadlock = ["parking_lot/deadlock_detection"]
+nightly = ["allocator-api2/nightly"]
+strict_assertions = [
+  "foyer-common/strict_assertions",
+  "foyer-memory/strict_assertions",
+]
+tracing = ["fastrace/enable", "foyer-common/tracing", "foyer-memory/tracing"]
+
+[lints]
+workspace = true
